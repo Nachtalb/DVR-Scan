@@ -66,10 +66,10 @@ OUTPUT_FILE_TEMPLATE = "{VIDEO_NAME}.DSME_{TIMESTAMP}.{EXTENSION}"
 
 def event_file_name(video_name: str, start: FrameTimecode, extension: str) -> Path:
     """Output file name for an event starting at `start` in `video_name`,
-    e.g. `video.DSME_1h02m30.123s.avi`."""
+    e.g. `video.DSME_01h02m30.123s.avi`."""
     minutes, ms = divmod(round(start.seconds * 1000), 60_000)
     hours, minutes = divmod(minutes, 60)
-    timestamp = "%dh%02dm%06.3fs" % (hours, minutes, ms / 1000)
+    timestamp = "%02dh%02dm%06.3fs" % (hours, minutes, ms / 1000)
     return Path(
         OUTPUT_FILE_TEMPLATE.format(VIDEO_NAME=video_name, TIMESTAMP=timestamp, EXTENSION=extension)
     )

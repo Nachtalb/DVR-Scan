@@ -83,8 +83,8 @@ def test_opencv_encoder_one_file_per_event(tmp_path):
         encoder.write_frame(_make_frame(), _tc(1.0 + i / FRAME_RATE))
     encoder.finish_event(_event(2, 1.0, 1.3))
     encoder.close()
-    first = tmp_path / "video.DSME_0h00m00.000s.avi"
-    second = tmp_path / "video.DSME_0h00m01.000s.avi"
+    first = tmp_path / "video.DSME_00h00m00.000s.avi"
+    second = tmp_path / "video.DSME_00h00m01.000s.avi"
     assert first.exists() and second.exists()
     assert _count_frames(first) == 5
     assert _count_frames(second) == 3
@@ -109,7 +109,7 @@ def test_opencv_encoder_combined_output(tmp_path):
     combined = tmp_path / "combined.avi"
     assert combined.exists()
     assert _count_frames(combined) == 8
-    assert not (tmp_path / "video.DSME_0h00m00.000s.avi").exists()
+    assert not (tmp_path / "video.DSME_00h00m00.000s.avi").exists()
 
 
 def test_opencv_encoder_lazy_open(tmp_path):
@@ -346,7 +346,7 @@ def test_set_output_encode_validation(traffic_camera_video, monkeypatch):
 
 def test_event_file_name():
     """Event files are named by start time as hours/minutes/seconds, even past 24h."""
-    assert event_file_name("v", _tc(0.0), "avi") == Path("v.DSME_0h00m00.000s.avi")
-    assert event_file_name("v", _tc(3750.1), "avi") == Path("v.DSME_1h02m30.100s.avi")
+    assert event_file_name("v", _tc(0.0), "avi") == Path("v.DSME_00h00m00.000s.avi")
+    assert event_file_name("v", _tc(3750.1), "avi") == Path("v.DSME_01h02m30.100s.avi")
     assert event_file_name("v", _tc(45678.2), "mp4") == Path("v.DSME_12h41m18.200s.mp4")
     assert event_file_name("v", _tc(90000.0), "jpg") == Path("v.DSME_25h00m00.000s.jpg")

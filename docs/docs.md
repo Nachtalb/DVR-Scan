@@ -11,7 +11,7 @@ To extract all motion events from a video, you can start with:
 
     dvr-scan -i video.mp4
 
-This will produce output events in your working directory starting with the prefix `video.DSME_` (e.g. `video.DSME_0h01m23.456s.avi`, named by the start time of each event). If you want to limit scanning to a particular part of the video frame, you can use the [region editor](#region-editor):
+This will produce output events in your working directory starting with the prefix `video.DSME_` (e.g. `video.DSME_00h01m23.456s.avi`, named by the start time of each event). If you want to limit scanning to a particular part of the video frame, you can use the [region editor](#region-editor):
 
     dvr-scan -i video.mp4 -r
 
@@ -306,7 +306,7 @@ All time values can be given as a timecode (`HH:MM:SS` or `HH:MM:SS.nnn`), in se
 
  * <b><pre>-mo mask.avi, --mask-output mask.avi</pre></b> Save a video containing the calculated motion mask on each frame. Useful for tuning motion detection. Requires `.avi` extension.
 
- * <b><pre>--thumbnails highscore</pre></b> Save a thumbnail of the frame with the highest motion score for each event. Thumbnails are named after the source video containing the event (e.g. `video.DSME_0h01m23.456s.jpg`), or after the combined output file when `-o`/`--output` is used.
+ * <b><pre>--thumbnails highscore</pre></b> Save a thumbnail of the frame with the highest motion score for each event. Thumbnails are named after the source video containing the event (e.g. `video.DSME_00h01m23.456s.jpg`), or after the combined output file when `-o`/`--output` is used.
 
 #### Overlays
 
