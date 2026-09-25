@@ -211,6 +211,7 @@ class OpenCVEncoder(EventEncoder):
         output_dir: ty.Optional[Path],
         comp_file: ty.Optional[Path],
         completed_events: int = 0,
+        video_input: ty.Optional[VideoStreamConcat] = None,
     ):
         """Arguments:
         fourcc: OpenCV fourcc code (from cv2.VideoWriter_fourcc) to encode with.
@@ -220,8 +221,12 @@ class OpenCVEncoder(EventEncoder):
         comp_file: If set, single video that all motion events will be written to.
         completed_events: Events already written by a previous scan, so output file
             numbering continues instead of restarting.
+        video_input: If set, subtitles from the source video are written alongside each
+            event as an .srt file (VideoWriter can't mux subtitles into the output).
         """
         self._fourcc = fourcc
+        self._video_input = video_input
+        self._output_path: ty.Optional[Path] = None
         self._frame_rate = frame_rate
         self._video_name = video_name
         self._output_dir = output_dir
@@ -244,6 +249,7 @@ class OpenCVEncoder(EventEncoder):
                 )
             )
             size = (frame_bgr.shape[1], frame_bgr.shape[0])
+            self._output_path = output_path
             self._video_writer = _create_video_writer(
                 output_path, self._output_dir, self._fourcc, self._frame_rate, size
             )
@@ -256,6 +262,31 @@ class OpenCVEncoder(EventEncoder):
         if not self._comp_file and self._video_writer is not None:
             self._video_writer.release()
             self._video_writer = None
+            self._write_subtitles(context)
+
+    def _write_subtitles(self, context: EventContext):
+        if self._video_input is None:
+            return
+        spans = self._video_input.map_span(context.start, context.end)
+        # Events straddling two inputs only get the first input's subtitles.
+        if not spans or not self._video_input.sources[spans[0].source_index].has_subtitles:
+            return
+        path = self._output_path.with_suffix(".srt")
+        if self._output_dir:
+            path = self._output_dir / path
+        try:
+            _extract_event_ffmpeg(
+                input_path=spans[0].path,
+                output_path=path,
+                start_time=spans[0].local_start,
+                end_time=spans[0].local_end,
+                ffmpeg_input_args=DEFAULT_FFMPEG_INPUT_ARGS,
+                # Output-side `-ss 0` drops subtitle packets from before the input seek point.
+                ffmpeg_out_args="-ss 0 -map 0:s:0",
+            )
+        except (OSError, subprocess.CalledProcessError) as ex:
+            # Missing ffmpeg or bitmap subtitles (can't convert to .srt) - video is still fine.
+            logger.warning("Failed to write subtitles for event %d: %s", context.event_number, ex)
 
     def close(self):
         if self._video_writer is not None:

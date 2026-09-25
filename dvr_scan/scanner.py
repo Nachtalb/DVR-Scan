@@ -1145,6 +1145,7 @@ class MotionScanner:
                 # Keep file numbering in lockstep with `self._num_events` if scan()
                 # is ever invoked more than once on the same scanner.
                 completed_events=self._num_events,
+                video_input=self._input,
             )
         if self._output_mode == OutputMode.FFMPEG:
             return FFmpegExtractEncoder(

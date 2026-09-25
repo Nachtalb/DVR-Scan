@@ -10,6 +10,7 @@
 #
 """Tests for dvr_scan.encoder (output encoders driven with synthetic frames)."""
 
+import subprocess
 import typing as ty
 from fractions import Fraction
 from pathlib import Path
@@ -33,7 +34,14 @@ from dvr_scan.encoder import (
     build_pipe_command,
     get_encoder_type,
 )
-from dvr_scan.video_input import AudioStreamInfo, EventSpan, SourceInfo, VideoStreamInfo
+from dvr_scan.platform import is_ffmpeg_available
+from dvr_scan.video_input import (
+    AudioStreamInfo,
+    EventSpan,
+    SourceInfo,
+    VideoStreamConcat,
+    VideoStreamInfo,
+)
 
 FRAME_RATE = 10.0
 FRAME_SIZE = (64, 48)  # (width, height)
@@ -108,6 +116,36 @@ def test_opencv_encoder_combined_output(tmp_path):
     assert combined.exists()
     assert _count_frames(combined) == 8
     assert not (tmp_path / "video.DSME_0001.avi").exists()
+
+
+@pytest.mark.skipif(not is_ffmpeg_available(), reason="requires ffmpeg")
+def test_opencv_encoder_writes_subtitles(tmp_path):
+    """Subtitles from the source must be written next to each event, cut to its span."""
+    srt = tmp_path / "in.srt"
+    srt.write_text(
+        "1\n00:00:00,000 --> 00:00:01,000\nfirst\n\n2\n00:00:02,000 --> 00:00:03,000\nsecond\n"
+    )
+    source = tmp_path / "in.mkv"
+    subprocess.check_call(
+        ["ffmpeg", "-v", "error", "-y", "-i", "tests/resources/simple_movement.mp4", "-i", str(srt)]
+        + ["-map", "0:v", "-map", "1", "-t", "5", "-c:v", "copy", "-c:s", "srt", str(source)]
+    )
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    encoder = OpenCVEncoder(
+        fourcc=FOURCC,
+        frame_rate=FRAME_RATE,
+        video_name="video",
+        output_dir=out_dir,
+        comp_file=None,
+        video_input=VideoStreamConcat([source]),
+    )
+    encoder.write_frame(_make_frame(), _tc(2.0))
+    encoder.finish_event(_event(1, 2.0, 3.0))
+    encoder.close()
+    subs = (out_dir / "video.DSME_0001.srt").read_text()
+    assert "second" in subs and "first" not in subs
+    assert "00:00:00,000 -->" in subs
 
 
 def test_opencv_encoder_lazy_open(tmp_path):
