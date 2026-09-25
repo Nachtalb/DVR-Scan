@@ -82,7 +82,7 @@ def test_encode_mode(tmp_path):
     events = sorted(tmp_path.iterdir())
     assert len(events) == BASE_COMMAND_NUM_EVENTS
     assert all(
-        re.fullmatch(r"traffic_camera\.DSME_\d\d-\d\d-\d\d\.\d{3}\.mp4", path.name)
+        re.fullmatch(r"traffic_camera\.DSME_\d+h\d\dm\d\d\.\d{3}s\.mp4", path.name)
         for path in events
     )
     for path in events:
@@ -168,7 +168,7 @@ def test_encode_mode_multiple_inputs_naming(tmp_path):
     assert len(first_events) >= 2 and len(second_events) >= 2
     assert len(first_events) + len(second_events) == len(events)
     # Events in the second video are named by their start time within that video.
-    assert second_events[0].startswith("second.DSME_00-00-")
+    assert second_events[0].startswith("second.DSME_0h00m")
     # The last event starting in the first video crosses the seam into the second;
     # its audio is concatenated from both sources.
     seam_event = output_dir / first_events[-1]
