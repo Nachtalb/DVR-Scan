@@ -60,8 +60,20 @@ RAW_VIDEO_INPUT_ARGS = "-f rawvideo -pix_fmt bgr24"
 """Arguments describing the raw frames piped to ffmpeg in OutputMode.ENCODE."""
 
 # TODO(#89): Add ability to set output name template.
-OUTPUT_FILE_TEMPLATE = "{VIDEO_NAME}.DSME_{EVENT_NUMBER}.{EXTENSION}"
+OUTPUT_FILE_TEMPLATE = "{VIDEO_NAME}.DSME_{TIMESTAMP}.{EXTENSION}"
 """Template to use for generating output files."""
+
+
+def event_file_name(video_name: str, start: FrameTimecode, extension: str) -> Path:
+    """Output file name for an event starting at `start` in `video_name`,
+    e.g. `video.DSME_00-01-23.456.avi` (colons aren't allowed in Windows paths)."""
+    return Path(
+        OUTPUT_FILE_TEMPLATE.format(
+            VIDEO_NAME=video_name,
+            TIMESTAMP=start.get_timecode().replace(":", "-"),
+            EXTENSION=extension,
+        )
+    )
 
 
 class OutputMode(Enum):
@@ -210,7 +222,6 @@ class OpenCVEncoder(EventEncoder):
         video_name: str,
         output_dir: ty.Optional[Path],
         comp_file: ty.Optional[Path],
-        completed_events: int = 0,
     ):
         """Arguments:
         fourcc: OpenCV fourcc code (from cv2.VideoWriter_fourcc) to encode with.
@@ -218,8 +229,6 @@ class OpenCVEncoder(EventEncoder):
         video_name: Name of the (first) input video, used as a filename template.
         output_dir: If set, folder where output files will be written to.
         comp_file: If set, single video that all motion events will be written to.
-        completed_events: Events already written by a previous scan, so output file
-            numbering continues instead of restarting.
         """
         self._fourcc = fourcc
         self._frame_rate = frame_rate
@@ -227,21 +236,13 @@ class OpenCVEncoder(EventEncoder):
         self._output_dir = output_dir
         self._comp_file = comp_file
         self._video_writer: ty.Optional[cv2.VideoWriter] = None
-        # Completed events; the in-progress event is numbered `self._num_events + 1`.
-        self._num_events = completed_events
 
     def write_frame(self, frame_bgr: np.ndarray, timecode: FrameTimecode):
         if self._video_writer is None:
             output_path = (
                 self._comp_file
                 if self._comp_file
-                else Path(
-                    OUTPUT_FILE_TEMPLATE.format(
-                        VIDEO_NAME=self._video_name,
-                        EVENT_NUMBER="%04d" % (1 + self._num_events),
-                        EXTENSION=self.EXTENSION,
-                    )
-                )
+                else event_file_name(self._video_name, timecode, self.EXTENSION)
             )
             size = (frame_bgr.shape[1], frame_bgr.shape[0])
             self._video_writer = _create_video_writer(
@@ -250,7 +251,6 @@ class OpenCVEncoder(EventEncoder):
         self._video_writer.write(frame_bgr)
 
     def finish_event(self, context: EventContext):
-        self._num_events += 1
         # Close the current VideoWriter to output the next event to a new file (unless we're
         # concatenating all events in the same output file).
         if not self._comp_file and self._video_writer is not None:
@@ -286,13 +286,7 @@ class FFmpegExtractEncoder(EventEncoder):
         self._ffmpeg_output_args = ffmpeg_output_args
 
     def finish_event(self, context: EventContext):
-        output_path = Path(
-            OUTPUT_FILE_TEMPLATE.format(
-                VIDEO_NAME=self._video_name,
-                EVENT_NUMBER="%04d" % context.event_number,
-                EXTENSION=self.EXTENSION,
-            )
-        )
+        output_path = event_file_name(self._video_name, context.start, self.EXTENSION)
         if self._output_dir:
             output_path = self._output_dir / output_path
         # Only log the args passed to ffmpeg on the first event, to reduce log spam.
@@ -419,7 +413,6 @@ class FFmpegPipeEncoder(EventEncoder):
         output_dir: ty.Optional[Path],
         comp_file: ty.Optional[Path],
         encode_args: str = DEFAULT_ENCODE_ARGS,
-        completed_events: int = 0,
     ):
         """Arguments:
         video_input: The input being scanned, used to map event times back to the
@@ -428,16 +421,14 @@ class FFmpegPipeEncoder(EventEncoder):
         output_dir: If set, folder where output files will be written to.
         comp_file: If set, single video that all motion events will be written to.
         encode_args: Encoder arguments for the ffmpeg output (no -map entries).
-        completed_events: Events already written by a previous scan, so output file
-            numbering continues instead of restarting.
         """
         self._video_input = video_input
         self._frame_rate = frame_rate
         self._output_dir = output_dir
         self._comp_file = comp_file
         self._encode_args = encode_args
-        # Completed events; the in-progress event is numbered `self._num_events + 1`.
-        self._num_events = completed_events
+        # Completed events, used to only log the first ffmpeg command.
+        self._num_events = 0
         self._process: ty.Optional[subprocess.Popen] = None
         self._stderr_thread: ty.Optional[threading.Thread] = None
         self._stderr_lines: ty.List[str] = []
@@ -513,14 +504,12 @@ class FFmpegPipeEncoder(EventEncoder):
         else:
             span = self._event_start_span(timecode)
             # Name each event after the source video containing it (#258).
-            video_name = span.path.stem if span is not None else self._video_input.paths[0].stem
-            output_path = Path(
-                OUTPUT_FILE_TEMPLATE.format(
-                    VIDEO_NAME=video_name,
-                    EVENT_NUMBER="%04d" % (1 + self._num_events),
-                    EXTENSION=self.EXTENSION,
+            if span is not None:
+                output_path = event_file_name(span.path.stem, span.local_start, self.EXTENSION)
+            else:
+                output_path = event_file_name(
+                    self._video_input.paths[0].stem, timecode, self.EXTENSION
                 )
-            )
             audio_inputs = self._audio_inputs(span)
         if self._output_dir:
             output_path = self._output_dir / output_path

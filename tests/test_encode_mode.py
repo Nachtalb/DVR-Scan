@@ -13,6 +13,7 @@
 All tests in this module require ffmpeg (see conftest.py, which allows using a copy
 of ffmpeg in the repository root when it is not on PATH)."""
 
+import re
 import shutil
 import subprocess
 import typing as ty
@@ -79,9 +80,11 @@ def test_encode_mode(tmp_path):
     (the audio track comes from the source, which contains AAC audio)."""
     _run_dvr_scan(BASE_COMMAND + ["--output-dir", tmp_path])
     events = sorted(tmp_path.iterdir())
-    assert [path.name for path in events] == [
-        "traffic_camera.DSME_%04d.mp4" % (index + 1) for index in range(BASE_COMMAND_NUM_EVENTS)
-    ]
+    assert len(events) == BASE_COMMAND_NUM_EVENTS
+    assert all(
+        re.fullmatch(r"traffic_camera\.DSME_\d\d-\d\d-\d\d\.\d{3}\.mp4", path.name)
+        for path in events
+    )
     for path in events:
         assert _count_frames(path) > 0, f"{path.name} did not decode any frames"
         assert _has_audio(path), f"{path.name} is missing its audio stream"
@@ -164,11 +167,8 @@ def test_encode_mode_multiple_inputs_naming(tmp_path):
     second_events = [name for name in events if name.startswith("second.DSME_")]
     assert len(first_events) >= 2 and len(second_events) >= 2
     assert len(first_events) + len(second_events) == len(events)
-    # Numbering is continuous across sources, in order.
-    assert events == ["first.DSME_%04d.mp4" % (index + 1) for index in range(len(first_events))] + [
-        "second.DSME_%04d.mp4" % (len(first_events) + index + 1)
-        for index in range(len(second_events))
-    ]
+    # Events in the second video are named by their start time within that video.
+    assert second_events[0].startswith("second.DSME_00-00-")
     # The last event starting in the first video crosses the seam into the second;
     # its audio is concatenated from both sources.
     seam_event = output_dir / first_events[-1]

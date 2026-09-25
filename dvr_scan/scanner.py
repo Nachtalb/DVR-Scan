@@ -36,7 +36,6 @@ from dvr_scan.encoder import (
     DEFAULT_FFMPEG_INPUT_ARGS,
     DEFAULT_FFMPEG_OUTPUT_ARGS,
     DEFAULT_VIDEOWRITER_CODEC,
-    OUTPUT_FILE_TEMPLATE,
     EventContext,
     EventEncoder,
     FFmpegCopyEncoder,
@@ -45,6 +44,7 @@ from dvr_scan.encoder import (
     MaskWriter,
     OpenCVEncoder,
     OutputMode,
+    event_file_name,
     get_encoder_type,
 )
 from dvr_scan.overlays import BoundingBoxOverlay, TextOverlay
@@ -1102,30 +1102,24 @@ class MotionScanner:
         """Save the highest-score frame of event `event_number` (starting at
         `event_start`) as a JPEG, named after the source video containing the event (or
         the combined output file's stem when -o is used, since per-event video files
-        don't exist in that case). `event_number` comes from the scan loop rather than
-        `self._num_events`, which is only advanced by the encode thread (and not at all
-        in scan-only mode)."""
+        don't exist in that case) and the event's start time within it."""
         if self._highframe is None:
             # Possible if the event was triggered before the detector stabilized
             # (e.g. an event starting on the first processed frame).
             logger.debug("no candidate frame for event %d, skipping thumbnail", event_number)
             return
         if self._comp_file is not None:
-            video_name = Path(self._comp_file).stem
+            output_path = event_file_name(Path(self._comp_file).stem, event_start, "jpg")
         else:
             # Probe with a one-frame-wide span: a zero-width span at a source boundary
             # would map to nothing.
             spans = self._input.map_span(
                 event_start, event_start + (1.0 / float(self._input.framerate))
             )
-            video_name = spans[0].path.stem if spans else self._input.paths[0].stem
-        output_path = Path(
-            OUTPUT_FILE_TEMPLATE.format(
-                VIDEO_NAME=video_name,
-                EVENT_NUMBER="%04d" % event_number,
-                EXTENSION="jpg",
-            )
-        )
+            if spans:
+                output_path = event_file_name(spans[0].path.stem, spans[0].local_start, "jpg")
+            else:
+                output_path = event_file_name(self._input.paths[0].stem, event_start, "jpg")
         if self._output_dir:
             output_path = self._output_dir / output_path
         cv2.imwrite(str(output_path), self._highframe)
@@ -1142,9 +1136,6 @@ class MotionScanner:
                 video_name=self._input.paths[0].stem,
                 output_dir=self._output_dir,
                 comp_file=self._comp_file,
-                # Keep file numbering in lockstep with `self._num_events` if scan()
-                # is ever invoked more than once on the same scanner.
-                completed_events=self._num_events,
             )
         if self._output_mode == OutputMode.FFMPEG:
             return FFmpegExtractEncoder(
@@ -1166,7 +1157,6 @@ class MotionScanner:
                 output_dir=self._output_dir,
                 comp_file=self._comp_file,
                 encode_args=self._encode_args,
-                completed_events=self._num_events,
             )
         return None
 

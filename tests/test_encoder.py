@@ -82,7 +82,8 @@ def test_opencv_encoder_one_file_per_event(tmp_path):
         encoder.write_frame(_make_frame(), _tc(1.0 + i / FRAME_RATE))
     encoder.finish_event(_event(2, 1.0, 1.3))
     encoder.close()
-    first, second = tmp_path / "video.DSME_0001.avi", tmp_path / "video.DSME_0002.avi"
+    first = tmp_path / "video.DSME_00-00-00.000.avi"
+    second = tmp_path / "video.DSME_00-00-01.000.avi"
     assert first.exists() and second.exists()
     assert _count_frames(first) == 5
     assert _count_frames(second) == 3
@@ -107,7 +108,7 @@ def test_opencv_encoder_combined_output(tmp_path):
     combined = tmp_path / "combined.avi"
     assert combined.exists()
     assert _count_frames(combined) == 8
-    assert not (tmp_path / "video.DSME_0001.avi").exists()
+    assert not (tmp_path / "video.DSME_00-00-00.000.avi").exists()
 
 
 def test_opencv_encoder_lazy_open(tmp_path):
