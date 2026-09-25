@@ -44,11 +44,12 @@ DEFAULT_FFMPEG_INPUT_ARGS = "-v error"
 """Default arguments to add before input when invoking ffmpeg."""
 
 DEFAULT_FFMPEG_OUTPUT_ARGS = (
-    "-map 0:v:0 -map 0:a? -map 0:s? -c:v libx264 -preset veryfast -crf 22 -c:a aac"
+    "-map 0:v:0 -map 0:a? -map 0:s? -c:v libx264 -preset veryfast -crf 22 -c:a aac -c:s mov_text"
 )
 """Default arguments passed to ffmpeg when using OutputMode.FFMPEG."""
 
-COPY_MODE_OUTPUT_ARGS = "-map 0:v:0 -map 0:a? -map 0:s? -c:v copy -c:a copy"
+# mp4 has no default subtitle encoder, so -c:s must be set whenever subtitles are mapped.
+COPY_MODE_OUTPUT_ARGS = "-map 0:v:0 -map 0:a? -map 0:s? -c:v copy -c:a copy -c:s mov_text"
 """Default arguments passed to ffmpeg when using OutputMode.COPY."""
 
 DEFAULT_ENCODE_ARGS = "-c:v libx264 -preset veryfast -crf 22 -c:a aac"
@@ -221,8 +222,8 @@ class OpenCVEncoder(EventEncoder):
         comp_file: If set, single video that all motion events will be written to.
         completed_events: Events already written by a previous scan, so output file
             numbering continues instead of restarting.
-        video_input: If set, subtitles from the source video are written alongside each
-            event as an .srt file (VideoWriter can't mux subtitles into the output).
+        video_input: If set, events from a source with subtitles are remuxed into .mkv
+            with the subtitles embedded (VideoWriter can't mux subtitles).
         """
         self._fourcc = fourcc
         self._video_input = video_input
@@ -265,28 +266,40 @@ class OpenCVEncoder(EventEncoder):
             self._write_subtitles(context)
 
     def _write_subtitles(self, context: EventContext):
+        """Remux the finished event into .mkv with the source's subtitles embedded (AVI
+        can't hold text subtitles). The video is stream-copied, not re-encoded."""
         if self._video_input is None:
             return
         spans = self._video_input.map_span(context.start, context.end)
         # Events straddling two inputs only get the first input's subtitles.
         if not spans or not self._video_input.sources[spans[0].source_index].has_subtitles:
             return
-        path = self._output_path.with_suffix(".srt")
+        avi_path = self._output_path
         if self._output_dir:
-            path = self._output_dir / path
+            avi_path = self._output_dir / avi_path
+        mkv_path = avi_path.with_suffix(".mkv")
+        span = spans[0]
+        args = [
+            "ffmpeg", "-y", "-nostdin", "-v", "error",
+            "-i", str(avi_path),
+            "-ss", span.local_start.get_timecode(), "-i", str(span.path),
+            "-t", (span.local_end - span.local_start).get_timecode(),
+            # Output-side `-ss 0` drops subtitle packets from before the input seek point.
+            "-ss", "0",
+            "-map", "0:v", "-map", "1:s:0", "-c:v", "copy", "-c:s", "srt",
+            str(mkv_path),
+        ]  # fmt: skip
         try:
-            _extract_event_ffmpeg(
-                input_path=spans[0].path,
-                output_path=path,
-                start_time=spans[0].local_start,
-                end_time=spans[0].local_end,
-                ffmpeg_input_args=DEFAULT_FFMPEG_INPUT_ARGS,
-                # Output-side `-ss 0` drops subtitle packets from before the input seek point.
-                ffmpeg_out_args="-ss 0 -map 0:s:0",
-            )
+            subprocess.check_output(args, text=True, stderr=subprocess.STDOUT)
         except (OSError, subprocess.CalledProcessError) as ex:
-            # Missing ffmpeg or bitmap subtitles (can't convert to .srt) - video is still fine.
-            logger.warning("Failed to write subtitles for event %d: %s", context.event_number, ex)
+            # Missing ffmpeg or bitmap subtitles (not convertible to srt): keep the .avi.
+            output = getattr(ex, "output", "") or ""
+            logger.warning(
+                "Failed to embed subtitles for event %d: %s\n%s", context.event_number, ex, output
+            )
+            mkv_path.unlink(missing_ok=True)
+            return
+        avi_path.unlink()
 
     def close(self):
         if self._video_writer is not None:

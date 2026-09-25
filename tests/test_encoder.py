@@ -120,7 +120,7 @@ def test_opencv_encoder_combined_output(tmp_path):
 
 @pytest.mark.skipif(not is_ffmpeg_available(), reason="requires ffmpeg")
 def test_opencv_encoder_writes_subtitles(tmp_path):
-    """Subtitles from the source must be written next to each event, cut to its span."""
+    """Subtitles from the source must be embedded in each event (as .mkv), cut to its span."""
     srt = tmp_path / "in.srt"
     srt.write_text(
         "1\n00:00:00,000 --> 00:00:01,000\nfirst\n\n2\n00:00:02,000 --> 00:00:03,000\nsecond\n"
@@ -143,7 +143,11 @@ def test_opencv_encoder_writes_subtitles(tmp_path):
     encoder.write_frame(_make_frame(), _tc(2.0))
     encoder.finish_event(_event(1, 2.0, 3.0))
     encoder.close()
-    subs = (out_dir / "video.DSME_0001.srt").read_text()
+    assert not (out_dir / "video.DSME_0001.avi").exists()
+    subs = subprocess.check_output(
+        ["ffmpeg", "-v", "error", "-i", str(out_dir / "video.DSME_0001.mkv"), "-f", "srt", "-"],
+        text=True,
+    )
     assert "second" in subs and "first" not in subs
     assert "00:00:00,000 -->" in subs
 
